@@ -1,0 +1,50 @@
+// ============================================================
+// Funktion: FC10 - Sensorauswertung
+// Projekt:  Automatisches Sortiersystem
+// Autor:    Ydriss Armel Demanou
+// Datum:    2024
+// Beschr.:  Entprellung und Qualifizierung der Sensorsignale
+//           Entprellzeit: 10ms (Standard fuer dig. Eingaenge)
+// ============================================================
+
+FUNCTION FC10_Sensorauswertung : VOID
+VAR_INPUT
+    bRohLicht       : BOOL;     // Rohsignal Lichtschranke
+    bRohInduktiv    : BOOL;     // Rohsignal Induktivgeber
+    bRohGross       : BOOL;     // Rohsignal Groessensensor
+END_VAR
+
+VAR_OUTPUT
+    bEntprLicht     : BOOL;     // Entprelltes Signal Lichtschranke
+    bEntprInduktiv  : BOOL;     // Entprelltes Signal Induktivgeber
+    bEntprGross     : BOOL;     // Entprelltes Signal Groessensensor
+END_VAR
+
+VAR_STATIC
+    tEntprLicht     : TON;
+    tEntprInduktiv  : TON;
+    tEntprGross     : TON;
+    tFallLicht      : TOF;
+    tFallInduktiv   : TOF;
+    tFallGross      : TOF;
+END_VAR
+
+// Entprellung Lichtschranke (steigende und fallende Flanke)
+tEntprLicht(IN := bRohLicht,    PT := T#10MS);
+tFallLicht( IN := bRohLicht,    PT := T#10MS);
+IF tEntprLicht.Q THEN bEntprLicht    := TRUE;  END_IF;
+IF NOT tFallLicht.Q THEN bEntprLicht := FALSE; END_IF;
+
+// Entprellung Induktivgeber
+tEntprInduktiv(IN := bRohInduktiv,    PT := T#10MS);
+tFallInduktiv( IN := bRohInduktiv,    PT := T#10MS);
+IF tEntprInduktiv.Q THEN bEntprInduktiv    := TRUE;  END_IF;
+IF NOT tFallInduktiv.Q THEN bEntprInduktiv := FALSE; END_IF;
+
+// Entprellung Groessensensor
+tEntprGross(IN := bRohGross,    PT := T#10MS);
+tFallGross( IN := bRohGross,    PT := T#10MS);
+IF tEntprGross.Q THEN bEntprGross    := TRUE;  END_IF;
+IF NOT tFallGross.Q THEN bEntprGross := FALSE; END_IF;
+
+END_FUNCTION

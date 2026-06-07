@@ -1,0 +1,70 @@
+// ============================================================
+// Organisationsbaustein: OB1 - Hauptprogramm
+// Projekt:          Automatisches Sortiersystem
+// SPS:              Siemens S7-1500 (CPU 1516-3 PN/DP)
+// Autor:            Ydriss Armel Demanou
+// Datum:            2024
+// Beschreibung:     Zyklischer Hauptbaustein - ruft alle FBs auf
+// ============================================================
+
+ORGANIZATION_BLOCK OB1
+VAR_TEMP
+    OB1_EV_CLASS    : BYTE;
+    OB1_SCAN_1      : BYTE;
+    OB1_PRIORITY    : BYTE;
+    OB1_OB_NUMBR    : BYTE;
+    OB1_RESERVED_1  : BYTE;
+    OB1_RESERVED_2  : BYTE;
+    OB1_PREV_CYCLE  : INT;
+    OB1_MIN_CYCLE   : INT;
+    OB1_MAX_CYCLE   : INT;
+    OB1_DATE_TIME   : DATE_AND_TIME;
+END_VAR
+
+// --- Betriebsartauswahl (Handbetrieb / Automatik) ---
+IF DB10_Prozessdaten.bHandbetrieb THEN
+    // Handbetrieb: direkte Aktorsteuerung ueber HMI
+    DB10_Prozessdaten.bMotorBand := DB10_Prozessdaten.bHandMotor;
+    DB10_Prozessdaten.bWeiche1   := DB10_Prozessdaten.bHandWeiche1;
+    DB10_Prozessdaten.bWeiche2   := DB10_Prozessdaten.bHandWeiche2;
+ELSE
+    // Automatikbetrieb: Sortierlogik aufrufen
+    FB10_Sortierlogik_Inst(
+        bStart          := DB10_Prozessdaten.bStart,
+        bStop           := DB10_Prozessdaten.bStop,
+        bNotHalt        := E0_0,                          // I0.0 - NOT-HALT
+        bSensorLicht    := E0_1,                          // I0.1 - Lichtschranke
+        bSensorInduktiv := E0_2,                          // I0.2 - Induktivgeber
+        bSensorGross    := E0_3,                          // I0.3 - Groessensensor
+        bQuittierung    := DB10_Prozessdaten.bQuittierung,
+        bWeiche1        => A0_0,                          // Q0.0 - Weiche 1
+        bWeiche2        => A0_1,                          // Q0.1 - Weiche 2
+        bMotorBand      => A0_2,                          // Q0.2 - Foerderband-Motor
+        bBereit         => DB10_Prozessdaten.bBereit,
+        bStoerung       => DB10_Prozessdaten.bStoerung,
+        iStoerungCode   => DB10_Prozessdaten.iStoerungCode,
+        iZaehlerGesamt  => DB10_Prozessdaten.iZaehlerGesamt,
+        iZaehlerA       => DB10_Prozessdaten.iZaehlerA,
+        iZaehlerB       => DB10_Prozessdaten.iZaehlerB,
+        iZaehlerC       => DB10_Prozessdaten.iZaehlerC
+    );
+END_IF;
+
+// --- Foerderband-Steuerung aufrufen ---
+FB20_Foerderband_Inst(
+    bMotorSoll      := DB10_Prozessdaten.bMotorBand,
+    bMotorIst       => DB10_Prozessdaten.bMotorIstlauf,
+    bUeberlast      => DB10_Prozessdaten.bMotorUeberlast
+);
+
+// --- Sensorauswertung aufrufen ---
+FC10_Sensorauswertung(
+    bRohLicht    := E0_1,
+    bRohInduktiv := E0_2,
+    bRohGross    := E0_3,
+    bEntprLicht    => DB10_Prozessdaten.bSensorLicht,
+    bEntprInduktiv => DB10_Prozessdaten.bSensorInduktiv,
+    bEntprGross    => DB10_Prozessdaten.bSensorGross
+);
+
+END_ORGANIZATION_BLOCK

@@ -1,0 +1,151 @@
+// ============================================================
+// Funktionsbaustein: FB10 - Sortierlogik
+// Projekt:          Automatisches Sortiersystem
+// SPS:              Siemens S7-1500 (CPU 1516-3 PN/DP)
+// Autor:            Ydriss Armel Demanou
+// Datum:            2024
+// Version:          1.2
+// Beschreibung:     Zustandsmaschine fuer automatische
+//                   Sortierung nach Typ und Groesse
+// ============================================================
+
+FUNCTION_BLOCK FB10_Sortierlogik
+VAR_INPUT
+    bStart          : BOOL;     // Startbefehl Automatikbetrieb
+    bStop           : BOOL;     // Stoppbefehl
+    bNotHalt        : BOOL;     // NOT-HALT (1=OK, 0=Ausloesung)
+    bSensorLicht    : BOOL;     // Lichtschranke - Objekt erkannt
+    bSensorInduktiv : BOOL;     // Induktivgeber - Metall erkannt
+    bSensorGross    : BOOL;     // Groessensensor - Objekt groesser 10cm
+    bQuittierung    : BOOL;     // Stoerungsquittierung (steigende Flanke)
+END_VAR
+
+VAR_OUTPUT
+    bWeiche1        : BOOL;     // Weiche 1 - Behaelter A (Metall klein)
+    bWeiche2        : BOOL;     // Weiche 2 - Behaelter C (Plastik gross)
+    bMotorBand      : BOOL;     // Foerderband-Motor EIN
+    bBereit         : BOOL;     // Anlage betriebsbereit
+    bStoerung       : BOOL;     // Stoerungsbit aktiv
+    iStoerungCode   : INT;      // Stoerungscode (0=keine 1=Stau 2=Sensor 99=NOT-HALT)
+    iZaehlerGesamt  : DINT;     // Zaehler sortierte Objekte gesamt
+    iZaehlerA       : INT;      // Zaehler Behaelter A (Metall klein)
+    iZaehlerB       : INT;      // Zaehler Behaelter B (Misch)
+    iZaehlerC       : INT;      // Zaehler Behaelter C (Plastik gross)
+END_VAR
+
+VAR
+    iZustand        : INT := 0;
+    tStauTimer      : TON;
+    tWeichenTimer   : TON;
+    bMetallMerker   : BOOL;
+    bGrossMerker    : BOOL;
+    bQuittFlank     : R_TRIG;
+END_VAR
+
+// --- Flankenauswertung ---
+bQuittFlank(CLK := bQuittierung);
+
+// --- NOT-HALT (hoechste Prioritaet) ---
+IF NOT bNotHalt THEN
+    bMotorBand    := FALSE;
+    bWeiche1      := FALSE;
+    bWeiche2      := FALSE;
+    bStoerung     := TRUE;
+    iStoerungCode := 99;
+    iZustand      := 0;
+    RETURN;
+END_IF;
+
+// --- Quittierung ---
+IF bQuittFlank.Q AND bStoerung THEN
+    bStoerung     := FALSE;
+    iStoerungCode := 0;
+END_IF;
+
+// --- Zustandsmaschine ---
+CASE iZustand OF
+
+    0: // Warten auf Start
+        bMotorBand := FALSE;
+        bWeiche1   := FALSE;
+        bWeiche2   := FALSE;
+        bBereit    := FALSE;
+        IF bStart AND NOT bStoerung THEN
+            iZustand := 1;
+        END_IF;
+
+    1: // Betriebsbereit - Warten auf Objekt
+        bMotorBand := TRUE;
+        bWeiche1   := FALSE;
+        bWeiche2   := FALSE;
+        bBereit    := TRUE;
+        tStauTimer(IN := FALSE);
+        IF bStop THEN
+            iZustand := 0;
+        END_IF;
+        IF bSensorLicht THEN
+            bMetallMerker := FALSE;
+            bGrossMerker  := FALSE;
+            iZustand      := 2;
+        END_IF;
+
+    2: // Objekterkennung - Groesse und Material messen
+        tStauTimer(IN := TRUE, PT := T#5S);
+        IF bSensorGross    THEN bGrossMerker  := TRUE; END_IF;
+        IF bSensorInduktiv THEN bMetallMerker := TRUE; END_IF;
+        IF tStauTimer.Q THEN
+            bStoerung     := TRUE;
+            iStoerungCode := 1;
+            bMotorBand    := FALSE;
+            iZustand      := 99;
+            RETURN;
+        END_IF;
+        IF NOT bSensorLicht THEN
+            iZustand := 3;
+        END_IF;
+
+    3: // Weichensteuerung - Sortierentscheidung
+        // Metall + Klein  -> Weiche 1 -> Behaelter A
+        // Plastik + Gross -> Weiche 2 -> Behaelter C
+        // Alle anderen    -> Durchlauf -> Behaelter B
+        IF bMetallMerker AND NOT bGrossMerker THEN
+            bWeiche1 := TRUE;
+            iZaehlerA := iZaehlerA + 1;
+        ELSIF NOT bMetallMerker AND bGrossMerker THEN
+            bWeiche2 := TRUE;
+            iZaehlerC := iZaehlerC + 1;
+        ELSE
+            bWeiche1 := FALSE;
+            bWeiche2 := FALSE;
+            iZaehlerB := iZaehlerB + 1;
+        END_IF;
+        iZaehlerGesamt := iZaehlerGesamt + 1;
+        tWeichenTimer(IN := TRUE, PT := T#800MS);
+        iZustand := 4;
+
+    4: // Warten - Weiche aktiv halten
+        tWeichenTimer(IN := TRUE, PT := T#800MS);
+        IF tWeichenTimer.Q THEN
+            bWeiche1 := FALSE;
+            bWeiche2 := FALSE;
+            tWeichenTimer(IN := FALSE);
+            iZustand := 1;
+        END_IF;
+
+    99: // Stoerungszustand
+        bMotorBand := FALSE;
+        bWeiche1   := FALSE;
+        bWeiche2   := FALSE;
+        bBereit    := FALSE;
+        bStoerung  := TRUE;
+        IF bQuittFlank.Q THEN
+            bStoerung     := FALSE;
+            iStoerungCode := 0;
+            iZustand      := 0;
+        END_IF;
+
+    ELSE
+        iZustand := 0;
+END_CASE;
+
+END_FUNCTION_BLOCK
